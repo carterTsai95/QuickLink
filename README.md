@@ -30,7 +30,7 @@ For a menu-bar-only experience, set the app as an agent so it doesn’t appear i
 
 | Type | Preview |
 | --- | --- |
-| Demo | <video src="QuickLink/Media/Action.mov" controls width="520"></video><br/><a href="QuickLink/Media/Action.mov">Download .mov</a> |
+| Demo | <video src="https://github.com/carterTsai95/QuickLink/blob/main/QuickLink/Media/Action.mov" width="320" height="240" controls></video> |
 | Empty list | <img src="QuickLink/Media/EmptyLinks.png" width="520" /> |
 | Item row | <img src="QuickLink/Media/ItemRow.png" width="520" /> |
 
