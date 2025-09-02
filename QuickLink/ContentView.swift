@@ -6,137 +6,6 @@
 //
 
 import SwiftUI
-import Combine
-
-// MARK: - Models
-
-struct QuickLinkItem: Identifiable, Codable, Equatable {
-    let id: UUID
-    var title: String?
-    var urlString: String
-}
-
-// MARK: - Store
-
-final class LinkStore: ObservableObject {
-    @Published var links: [QuickLinkItem] = []
-    @Published var errorMessage: String?
-
-#if DEBUG
-    static var simulateSaveFailure: Bool = false
-#endif
-
-    private let userDefaultsKey = "quicklink.links"
-
-    init() {
-        loadLinks()
-        seedIfNeeded()
-    }
-
-    func addLink(title: String, urlInput: String) {
-        guard let normalized = normalizeURLString(urlInput) else { return }
-        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let finalTitle: String? = trimmedTitle.isEmpty ? nil : trimmedTitle
-        let newItem = QuickLinkItem(id: UUID(), title: finalTitle, urlString: normalized)
-
-        let previous = links
-        links.append(newItem)
-        if let error = trySaveLinks() {
-            links = previous
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func deleteLinks(at offsets: IndexSet) {
-        let previous = links
-        withAnimation(.easeInOut(duration: 0.2)) {
-            links.remove(atOffsets: offsets)
-        }
-        if let error = trySaveLinks() {
-            withAnimation(.easeInOut(duration: 0.2)) {
-                links = previous
-            }
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    func remove(item: QuickLinkItem) {
-        guard let index = links.firstIndex(of: item) else { return }
-        let previous = links
-        links.remove(at: index)
-
-        if let error = trySaveLinks() {
-            links = previous
-            errorMessage = error.localizedDescription
-        }
-    }
-
-    // Opening URLs is handled in the View via SwiftUI's openURL environment
-
-    // MARK: - Persistence
-
-    private func trySaveLinks() -> Error? {
-        #if DEBUG
-        if LinkStore.simulateSaveFailure {
-            errorMessage = "Simulated"
-            return NSError(domain: "QuickLink", code: -1, userInfo: [NSLocalizedDescriptionKey: "Simulated Error"])
-        }
-        #endif
-        do {
-            let data = try JSONEncoder().encode(links)
-            UserDefaults.standard.set(data, forKey: userDefaultsKey)
-            errorMessage = nil
-            return nil
-        } catch {
-            errorMessage = error.localizedDescription
-            return error
-        }
-    }
-
-    private func loadLinks() {
-        guard let data = UserDefaults.standard.data(forKey: userDefaultsKey) else { return }
-        do {
-            let decoded = try JSONDecoder().decode([QuickLinkItem].self, from: data)
-            links = decoded
-        } catch {
-            // Ignore malformed cache
-            links = []
-        }
-    }
-
-
-    private func seedIfNeeded() {
-        if links.isEmpty {
-            links = [
-                QuickLinkItem(id: UUID(), title: "Apple", urlString: "https://www.apple.com")
-            ]
-        }
-    }
-
-    // MARK: - Validation / Normalization
-
-    private func normalizeURLString(_ input: String) -> String? {
-        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return nil }
-
-        // Prepend https scheme if missing
-        let withScheme: String
-        if trimmed.contains("://") {
-            withScheme = trimmed
-        } else {
-            withScheme = "https://" + trimmed
-        }
-
-        guard let components = URLComponents(string: withScheme),
-              let scheme = components.scheme,
-              let host = components.host,
-              !scheme.isEmpty,
-              !host.isEmpty else {
-            return nil
-        }
-        return withScheme
-    }
-}
 
 // MARK: - UI
 
@@ -199,36 +68,17 @@ struct ContentView: View {
             } else {
                 List {
                     ForEach(store.links) { item in
-                        HStack(alignment: .center, spacing: 8) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                if let title = item.title, !title.isEmpty {
-                                    Text(title)
-                                        .font(.body)
-                                    Text(item.urlString)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text(item.urlString)
-                                        .font(.body)
-                                }
-                            }
-                            Spacer()
-                            Button {
+                        LinkRowView(
+                            item: item,
+                            onOpen: {
                                 if let url = URL(string: item.urlString) {
                                     openURL(url)
                                 }
-                            } label: {
-                                Label("Open", systemImage: "arrow.up.right.square")
-                            }
-                            .buttonStyle(.borderless)
-
-                            Button(role: .destructive) {
+                            },
+                            onDelete: {
                                 store.remove(item: item)
-                            } label: {
-                                Label("Delete", systemImage: "trash")
                             }
-                            .buttonStyle(.borderless)
-                        }
+                        )
                     }
                     .onDelete(perform: store.deleteLinks)
                 }
