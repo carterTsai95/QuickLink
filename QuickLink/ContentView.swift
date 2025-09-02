@@ -13,7 +13,7 @@ import AppKit
 
 struct QuickLinkItem: Identifiable, Codable, Equatable {
     let id: UUID
-    var title: String
+    var title: String?
     var urlString: String
 }
 
@@ -33,7 +33,9 @@ final class LinkStore: ObservableObject {
 
     func addLink(title: String, urlInput: String) {
         guard let normalized = normalizeURLString(urlInput) else { return }
-        let newItem = QuickLinkItem(id: UUID(), title: title.isEmpty ? normalized : title, urlString: normalized)
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalTitle: String? = trimmedTitle.isEmpty ? nil : trimmedTitle
+        let newItem = QuickLinkItem(id: UUID(), title: finalTitle, urlString: normalized)
         links.append(newItem)
     }
 
@@ -67,6 +69,7 @@ final class LinkStore: ObservableObject {
             links = []
         }
     }
+
 
     private func seedIfNeeded() {
         if links.isEmpty {
@@ -145,11 +148,16 @@ struct ContentView: View {
                     ForEach(store.links) { item in
                         HStack(alignment: .center, spacing: 8) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(item.title)
-                                    .font(.body)
-                                Text(item.urlString)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                if let title = item.title, !title.isEmpty {
+                                    Text(title)
+                                        .font(.body)
+                                    Text(item.urlString)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                } else {
+                                    Text(item.urlString)
+                                        .font(.body)
+                                }
                             }
                             Spacer()
                             Button {
@@ -171,7 +179,6 @@ struct ContentView: View {
                     }
                     .onDelete(perform: store.deleteLinks)
                 }
-                .listStyle(.inset)
                 .frame(maxHeight: .infinity)
             }
 
