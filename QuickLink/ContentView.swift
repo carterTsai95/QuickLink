@@ -7,7 +7,6 @@
 
 import SwiftUI
 import Combine
-import AppKit
 
 // MARK: - Models
 
@@ -20,9 +19,12 @@ struct QuickLinkItem: Identifiable, Codable, Equatable {
 // MARK: - Store
 
 final class LinkStore: ObservableObject {
-    @Published var links: [QuickLinkItem] = [] {
-        didSet { saveLinks() }
-    }
+    @Published var links: [QuickLinkItem] = []
+    @Published var errorMessage: String?
+
+#if DEBUG
+    static var simulateSaveFailure: Bool = false
+#endif
 
     private let userDefaultsKey = "quicklink.links"
 
@@ -36,26 +38,58 @@ final class LinkStore: ObservableObject {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let finalTitle: String? = trimmedTitle.isEmpty ? nil : trimmedTitle
         let newItem = QuickLinkItem(id: UUID(), title: finalTitle, urlString: normalized)
+
+        let previous = links
         links.append(newItem)
+        if let error = trySaveLinks() {
+            links = previous
+            errorMessage = error.localizedDescription
+        }
     }
 
     func deleteLinks(at offsets: IndexSet) {
-        links.remove(atOffsets: offsets)
+        let previous = links
+        withAnimation(.easeInOut(duration: 0.2)) {
+            links.remove(atOffsets: offsets)
+        }
+        if let error = trySaveLinks() {
+            withAnimation(.easeInOut(duration: 0.2)) {
+                links = previous
+            }
+            errorMessage = error.localizedDescription
+        }
     }
 
-    func open(_ item: QuickLinkItem) {
-        guard let url = URL(string: item.urlString) else { return }
-        NSWorkspace.shared.open(url)
+    func remove(item: QuickLinkItem) {
+        guard let index = links.firstIndex(of: item) else { return }
+        let previous = links
+        links.remove(at: index)
+
+        if let error = trySaveLinks() {
+            links = previous
+            errorMessage = error.localizedDescription
+        }
     }
+
+    // Opening URLs is handled in the View via SwiftUI's openURL environment
 
     // MARK: - Persistence
 
-    private func saveLinks() {
+    private func trySaveLinks() -> Error? {
+        #if DEBUG
+        if LinkStore.simulateSaveFailure {
+            errorMessage = "Simulated"
+            return NSError(domain: "QuickLink", code: -1, userInfo: [NSLocalizedDescriptionKey: "Simulated Error"])
+        }
+        #endif
         do {
             let data = try JSONEncoder().encode(links)
             UserDefaults.standard.set(data, forKey: userDefaultsKey)
+            errorMessage = nil
+            return nil
         } catch {
-            // In a first draft, silently ignore; could add logging later
+            errorMessage = error.localizedDescription
+            return error
         }
     }
 
@@ -110,6 +144,7 @@ struct ContentView: View {
     @StateObject private var store = LinkStore()
     @State private var newTitle: String = ""
     @State private var newURL: String = ""
+    @Environment(\.openURL) private var openURL
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -120,8 +155,17 @@ struct ContentView: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("Add a new link")
-                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Add a new link")
+                        .foregroundStyle(.secondary)
+                    if let message = store.errorMessage, !message.isEmpty {
+                        Text(message)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                            .id("error_\(message)")
+                    }
+                }
                 HStack(spacing: 8) {
                     TextField("Title (optional)", text: $newTitle)
                         .textFieldStyle(.roundedBorder)
@@ -137,6 +181,15 @@ struct ContentView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(newURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
+#if DEBUG
+                Toggle("Simulate save failure", isOn: Binding(
+                    get: { LinkStore.simulateSaveFailure },
+                    set: { LinkStore.simulateSaveFailure = $0 }
+                ))
+                .toggleStyle(.switch)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+#endif
             }
 
             Divider()
@@ -161,16 +214,16 @@ struct ContentView: View {
                             }
                             Spacer()
                             Button {
-                                store.open(item)
+                                if let url = URL(string: item.urlString) {
+                                    openURL(url)
+                                }
                             } label: {
                                 Label("Open", systemImage: "arrow.up.right.square")
                             }
                             .buttonStyle(.borderless)
 
                             Button(role: .destructive) {
-                                if let index = store.links.firstIndex(of: item) {
-                                    store.links.remove(at: index)
-                                }
+                                store.remove(item: item)
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
